@@ -163,6 +163,30 @@ function makeRecommendation({ code, title, processingMonths, reasons, docs, cita
   };
 }
 
+function harmonizeRecommendationsWithOfficialScore(recommendations, officialScore) {
+  if (!Array.isArray(recommendations) || recommendations.length === 0) return [];
+
+  const hasNumericOfficialScore = Number.isFinite(Number(officialScore?.score));
+  const hasNumericOfficialMax = Number.isFinite(Number(officialScore?.maxScore)) && Number(officialScore?.maxScore) > 0;
+
+  if (!hasNumericOfficialScore || !hasNumericOfficialMax) return recommendations;
+
+  const normalized = Math.round((Number(officialScore.score) / Number(officialScore.maxScore)) * 100);
+  const bounded = Math.max(0, Math.min(100, normalized));
+
+  return recommendations.map((r, idx) => {
+    // Keep rank separation but align with latest official score context.
+    const rankAdjustment = idx * 4;
+    const adjustedScore = Math.max(0, Math.min(100, bounded - rankAdjustment));
+
+    return {
+      ...r,
+      eligibilityScore: adjustedScore,
+      confidence: normalizeConfidence(confidenceFromScore(adjustedScore)),
+    };
+  });
+}
+
 function buildFallbackRecommendations(profile) {
   const destination = normalizeDestination(profile?.destinationCountry);
   const purpose = normalizePurpose(profile?.purpose);
@@ -379,6 +403,7 @@ router.post("/analyze", requireAuth, async (req, res) => {
     generateRecommendationsFromLLM(payload),
   ]);
   const officialScore = await officialScorePromise;
+  const alignedRecommendations = harmonizeRecommendationsWithOfficialScore(recommendations, officialScore);
 
   QueryHistory.create({
     userId: req.user.sub,
@@ -386,7 +411,7 @@ router.post("/analyze", requireAuth, async (req, res) => {
     type: "analysis",
     prompt: JSON.stringify(payload),
     response: llmSummary,
-    confidence: recommendations[0]?.confidence || "low",
+    confidence: alignedRecommendations[0]?.confidence || "low",
   }).catch(() => {
     // Non-blocking write; analysis response should not fail if history logging fails.
   });
@@ -394,7 +419,7 @@ router.post("/analyze", requireAuth, async (req, res) => {
   res.json({
     profileId: profile._id,
     officialScore,
-    recommendations,
+    recommendations: alignedRecommendations,
     summary: llmSummary,
     disclaimer: "This is not legal advice.",
   });
