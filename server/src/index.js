@@ -34,17 +34,20 @@ app.use(
 );
 app.use(express.json({ limit: "1mb" }));
 
-app.use(
-  "/api",
-  rateLimit({
-    windowMs: 15 * 60 * 1000,
-    limit: 100,
-    standardHeaders: true,
-    legacyHeaders: false,
-  })
-);
-
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
+
+const apiRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip(req) {
+    return req.path === "/health" || req.path === "/health/";
+  },
+});
+
+app.use("/api", apiRateLimiter);
+
 app.use("/api/auth", authRoutes);
 app.use("/api/visa", visaRoutes);
 app.use("/api/chat", chatRoutes);

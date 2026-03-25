@@ -50,6 +50,76 @@ function getScoreBadgeClass(score) {
   return "rec-badge low";
 }
 
+function formatFieldLabel(field) {
+  return String(field || "")
+    .replace(/([A-Z])/g, " $1")
+    .replace(/^./, (char) => char.toUpperCase())
+    .trim();
+}
+
+function buildActualScoreReasons(officialScore, recommendation) {
+  const breakdown = Array.isArray(officialScore?.breakdown) ? officialScore.breakdown : [];
+  const score = Number(officialScore?.score);
+  const maxScore = Number(officialScore?.maxScore);
+  const missingFields = Array.isArray(officialScore?.missingRequiredFields)
+    ? officialScore.missingRequiredFields.filter(Boolean)
+    : [];
+
+  if (!breakdown.length || !Number.isFinite(score) || !Number.isFinite(maxScore) || maxScore <= 0) {
+    return Array.isArray(recommendation?.reasoning) && recommendation.reasoning.length > 0
+      ? recommendation.reasoning
+      : ["This score explanation is based on the recommendation logic currently returned by the API."];
+  }
+
+  const normalizedBreakdown = breakdown.map((item) => {
+    const points = Number(item?.points || 0);
+    const itemMax = Number(item?.maxPoints || 0);
+    const ratio = itemMax > 0 ? points / itemMax : 0;
+
+    return {
+      label: String(item?.label || "Factor"),
+      points,
+      maxPoints: itemMax,
+      ratio,
+      note: item?.note ? String(item.note) : "",
+    };
+  });
+
+  const strongestFactors = normalizedBreakdown
+    .filter((item) => item.points > 0)
+    .sort((a, b) => b.ratio - a.ratio || b.points - a.points)
+    .slice(0, 2);
+
+  const limitingFactors = normalizedBreakdown
+    .filter((item) => item.maxPoints > 0 && item.ratio <= 0.35)
+    .sort((a, b) => a.ratio - b.ratio || a.points - b.points)
+    .slice(0, 2);
+
+  const reasons = [
+    `This recommendation is using your latest official-style score of ${score}/${maxScore}${officialScore?.band ? ` (${officialScore.band} band)` : ""}.`,
+  ];
+
+  strongestFactors.forEach((item) => {
+    reasons.push(
+      `${item.label} is helping your score (${item.points}/${item.maxPoints || "?"})${item.note ? `. ${item.note}` : "."}`
+    );
+  });
+
+  limitingFactors.forEach((item) => {
+    reasons.push(`${item.label} is currently limiting your score (${item.points}/${item.maxPoints || "?"}).`);
+  });
+
+  if (missingFields.length > 0) {
+    reasons.push(`Missing profile inputs affecting accuracy: ${missingFields.map(formatFieldLabel).join(", ")}.`);
+  }
+
+  if (Array.isArray(recommendation?.reasoning) && recommendation.reasoning[0]) {
+    reasons.push(`Why this pathway still appears: ${recommendation.reasoning[0]}`);
+  }
+
+  return reasons;
+}
+
 function ScoreBar({ score }) {
   const color = getScoreColor(score);
   return (
@@ -224,8 +294,9 @@ function Auth({ onAuthed }) {
   );
 }
 
-function RecCard({ r, onChecklist, onSave }) {
+function RecCard({ r, officialScore, onChecklist, onSave }) {
   const [showSources, setShowSources] = useState(false);
+  const [showScoreWhy, setShowScoreWhy] = useState(false);
   const [saved, setSaved] = useState(false);
 
   const handleSave = async () => {
@@ -236,6 +307,9 @@ function RecCard({ r, onChecklist, onSave }) {
 
   const badgeClass = getScoreBadgeClass(r.eligibilityScore);
   const badgeLabel = r.eligibilityScore >= 70 ? "High" : r.eligibilityScore >= 45 ? "Medium" : "Low";
+  const scoreBandLabel = r.eligibilityScore >= 70 ? "high" : r.eligibilityScore >= 45 ? "medium" : "low";
+
+  const scoreReasons = buildActualScoreReasons(officialScore, r);
 
   return (
     <div className="rec-card">
@@ -271,6 +345,9 @@ function RecCard({ r, onChecklist, onSave }) {
       </div>
 
       <div className="rec-actions">
+        <button className="btn btn-ghost btn-sm" onClick={() => setShowScoreWhy((v) => !v)}>
+          {showScoreWhy ? "🛈 Hide score reason" : "🛈 Why this score?"}
+        </button>
         <button className="btn btn-success btn-sm" onClick={() => onChecklist(r.code)}>
           📋 View Checklist
         </button>
@@ -283,6 +360,23 @@ function RecCard({ r, onChecklist, onSave }) {
           {saved ? "✓ Saved" : "🔖 Save"}
         </button>
       </div>
+
+      {showScoreWhy && (
+        <div className={`score-explain score-${scoreBandLabel}`}>
+          <div className="score-explain-title">
+            {scoreBandLabel === "high"
+              ? "Why this is a high score"
+              : scoreBandLabel === "medium"
+                ? "Why this is a medium score"
+                : "Why this is a low score"}
+          </div>
+          <ul>
+            {scoreReasons.map((reason, idx) => (
+              <li key={`${r.code}-why-${idx}`}>{reason}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {r.sourceCitations?.length > 0 && (
         <>
@@ -617,6 +711,7 @@ function Dashboard() {
                   <RecCard
                     key={r.code}
                     r={r}
+                    officialScore={data.officialScore}
                     onChecklist={getChecklist}
                     onSave={async (rec) => {
                       await saveVisaOption({

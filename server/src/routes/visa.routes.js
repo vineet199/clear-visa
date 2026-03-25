@@ -163,6 +163,117 @@ function makeRecommendation({ code, title, processingMonths, reasons, docs, cita
   };
 }
 
+const OFFICIAL_DESTINATION_CITATIONS = {
+  canada: [
+    {
+      label: "IRCC Immigration and citizenship",
+      url: "https://www.canada.ca/en/services/immigration-citizenship.html",
+      publisher: "Government of Canada",
+    },
+    {
+      label: "IRCC Express Entry",
+      url: "https://www.canada.ca/en/immigration-refugees-citizenship/services/immigrate-canada/express-entry.html",
+      publisher: "Government of Canada",
+    },
+    {
+      label: "IRCC Work permits",
+      url: "https://www.canada.ca/en/immigration-refugees-citizenship/services/work-canada.html",
+      publisher: "Government of Canada",
+    },
+  ],
+  australia: [
+    {
+      label: "Department of Home Affairs - visas and migration",
+      url: "https://immi.homeaffairs.gov.au/visas/getting-a-visa/visa-listing",
+      publisher: "Australian Government",
+    },
+    {
+      label: "SkillSelect",
+      url: "https://immi.homeaffairs.gov.au/visas/working-in-australia/skillselect",
+      publisher: "Australian Government",
+    },
+    {
+      label: "Skilled Independent visa (subclass 189)",
+      url: "https://immi.homeaffairs.gov.au/visas/getting-a-visa/visa-listing/skilled-independent-189",
+      publisher: "Australian Government",
+    },
+  ],
+  "united kingdom": [
+    {
+      label: "UK Visas and Immigration",
+      url: "https://www.gov.uk/browse/visas-immigration",
+      publisher: "UK Government",
+    },
+    {
+      label: "Skilled Worker visa",
+      url: "https://www.gov.uk/skilled-worker-visa",
+      publisher: "UK Government",
+    },
+    {
+      label: "Check if you need a UK visa",
+      url: "https://www.gov.uk/check-uk-visa",
+      publisher: "UK Government",
+    },
+  ],
+  "united states": [
+    {
+      label: "USCIS Working in the United States",
+      url: "https://www.uscis.gov/working-in-the-united-states",
+      publisher: "U.S. Citizenship and Immigration Services",
+    },
+    {
+      label: "USCIS Green Card",
+      url: "https://www.uscis.gov/green-card",
+      publisher: "U.S. Citizenship and Immigration Services",
+    },
+    {
+      label: "U.S. Department of State visas",
+      url: "https://travel.state.gov/content/travel/en/us-visas.html",
+      publisher: "U.S. Department of State",
+    },
+  ],
+  "new zealand": [
+    {
+      label: "Immigration New Zealand",
+      url: "https://www.immigration.govt.nz/",
+      publisher: "New Zealand Government",
+    },
+    {
+      label: "Work visas",
+      url: "https://www.immigration.govt.nz/new-zealand-visas/options/work",
+      publisher: "New Zealand Government",
+    },
+    {
+      label: "Skilled Migrant Category Resident Visa",
+      url: "https://www.immigration.govt.nz/new-zealand-visas/visas/visa/skilled-migrant-category-resident-visa",
+      publisher: "New Zealand Government",
+    },
+  ],
+  singapore: [
+    {
+      label: "Ministry of Manpower work passes",
+      url: "https://www.mom.gov.sg/passes-and-permits",
+      publisher: "Government of Singapore",
+    },
+    {
+      label: "Immigration & Checkpoints Authority",
+      url: "https://www.ica.gov.sg/",
+      publisher: "Government of Singapore",
+    },
+  ],
+};
+
+function getOfficialCitationsForDestination(destination) {
+  const normalized = normalizeDestination(destination);
+  if (!normalized) return [];
+
+  if (normalized === "uk") {
+    return OFFICIAL_DESTINATION_CITATIONS["united kingdom"] || [];
+  }
+
+  return OFFICIAL_DESTINATION_CITATIONS[normalized] || [];
+}
+
 function harmonizeRecommendationsWithOfficialScore(recommendations, officialScore) {
   if (!Array.isArray(recommendations) || recommendations.length === 0) return [];
 
@@ -190,16 +301,7 @@ function harmonizeRecommendationsWithOfficialScore(recommendations, officialScor
 function buildFallbackRecommendations(profile) {
   const destination = normalizeDestination(profile?.destinationCountry);
   const purpose = normalizePurpose(profile?.purpose);
-
-  const canadaCitations = [
-    { label: "IRCC Immigration and citizenship", url: "https://www.canada.ca/en/services/immigration-citizenship.html", publisher: "Government of Canada" },
-    { label: "IRCC Express Entry", url: "https://www.canada.ca/en/immigration-refugees-citizenship/services/immigrate-canada/express-entry.html", publisher: "Government of Canada" },
-    { label: "IRCC Work permits", url: "https://www.canada.ca/en/immigration-refugees-citizenship/services/work-canada.html", publisher: "Government of Canada" },
-  ];
-
-  const genericCitations = [
-    { label: "Official destination immigration portal", url: "https://www.canada.ca/en/services/immigration-citizenship.html", publisher: "Government source" },
-  ];
+  const officialDestinationCitations = getOfficialCitationsForDestination(destination);
 
   const baseScore = buildRuleBasedScore(profile);
 
@@ -223,7 +325,7 @@ function buildFallbackRecommendations(profile) {
             "Proof of work experience",
             "Police clearance certificates",
           ],
-          citations: canadaCitations,
+          citations: officialDestinationCitations,
         }),
         makeRecommendation({
           code: "CA-PNP",
@@ -241,7 +343,7 @@ function buildFallbackRecommendations(profile) {
             "Language test proof",
             "Settlement funds evidence",
           ],
-          citations: canadaCitations,
+          citations: officialDestinationCitations,
         }),
         makeRecommendation({
           code: "CA-EMPLOYER-WP",
@@ -259,7 +361,7 @@ function buildFallbackRecommendations(profile) {
             "Work history documents",
             "Medical exam (if required)",
           ],
-          citations: canadaCitations,
+          citations: officialDestinationCitations,
         }),
       ];
     }
@@ -282,7 +384,7 @@ function buildFallbackRecommendations(profile) {
             "Statement of purpose",
             "Academic transcripts",
           ],
-          citations: canadaCitations,
+          citations: officialDestinationCitations,
         }),
       ];
     }
@@ -299,7 +401,7 @@ function buildFallbackRecommendations(profile) {
         "Use official immigration portals for current stream-specific criteria.",
       ],
       docs: ["Passport", "Identity proof", "Financial evidence", "Purpose-specific supporting documents"],
-      citations: genericCitations,
+      citations: officialDestinationCitations,
     }),
     makeRecommendation({
       code: "GEN-WORK-AUTH",
@@ -311,7 +413,7 @@ function buildFallbackRecommendations(profile) {
         "Skill, language, and experience profile should be validated against official rules.",
       ],
       docs: ["Work references", "Language score", "Educational proof", "Offer letter (if available)"],
-      citations: genericCitations,
+      citations: officialDestinationCitations,
     }),
   ];
 }
