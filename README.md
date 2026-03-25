@@ -225,9 +225,11 @@ If you prefer creating the service manually instead of Blueprint:
 
 - **Runtime:** Node
 - **Root Directory:** `server`
-- **Build Command:** `npm install`
-- **Start Command:** `npm start`
+- **Build Command:** `npm install --workspaces=false --no-fund --no-audit`
+- **Start Command:** `node src/index.js`
 - **Health Check Path:** `/api/health`
+
+Recommended: use **Node 20** on Render. This repo now pins Node 20 to avoid a Render/npm issue that can happen with the default Node 22 image in workspace-based repos.
 
 ### 2) Add environment variables on Render
 
@@ -310,6 +312,8 @@ Then push to the branch that triggers your Pages workflow.
 - Free-tier services may sleep when idle, so the first request can be slow.
 - Never put backend secrets into GitHub Pages or any `VITE_*` variable.
 - Only put public frontend build-time values in GitHub Actions variables.
+- If you see `npm error Exit handler never called!` during Render build, make sure the service is using the latest repo commit with the pinned Node version and the workspace-safe install command above, then redeploy.
+
 
 ## LLM Provider Switching (OpenAI / Gemini / Ollama)
 
