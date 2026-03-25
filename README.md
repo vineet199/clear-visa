@@ -172,6 +172,82 @@ OLLAMA_MODEL=llama3.1:8b
 
 If a provider call fails, the app returns a safe fallback response with disclaimer.
 
+## Supabase Setup for Rules + Vector Evidence (RAG-ready)
+
+You can use Supabase as a unified layer for:
+- raw crawl snapshot metadata,
+- normalized immigration rules,
+- vector evidence chunks (`pgvector`) for retrieval.
+
+### 1) Configure backend env
+
+Set in `server/.env`:
+
+```env
+SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+```
+
+### 2) Run schema SQL in Supabase SQL editor
+
+Execute:
+
+`server/src/data/supabase-schema.sql`
+
+This creates:
+- `crawl_sources`
+- `crawl_snapshots`
+- `immigration_rules`
+- `evidence_chunks` (with `embedding vector(1536)`)
+- `rule_change_log`
+- `match_evidence_chunks(...)` RPC for semantic retrieval
+
+### 3) How backend uses it today
+
+- Score service attempts to read active rules metadata from `immigration_rules` (version, verification date, source URLs).
+- If no Supabase rule metadata is found, it safely falls back to built-in scoring framework values.
+- `POST /api/visa/analyze` and `POST /api/visa/score` include this enriched score metadata.
+
+### 4) Basic Canada crawler job
+
+Configure bucket in `server/.env`:
+
+```env
+SUPABASE_SNAPSHOT_BUCKET=ircc-raw
+```
+
+Trigger the protected endpoint:
+
+- `POST /api/visa/crawl/canada`
+
+What it does:
+- fetches a small starter set of Canada IRCC pages,
+- stores raw HTML snapshot in Supabase Storage,
+- inserts crawl metadata into `crawl_sources` + `crawl_snapshots`,
+- inserts a basic normalized rule row into `immigration_rules`,
+- chunks plain text into `evidence_chunks` for retrieval.
+
+### 5) Scheduler, robots policy, dedupe and embeddings
+
+Additional env flags:
+
+```env
+CRAWLER_SCHEDULER_ENABLED=false
+CRAWLER_INTERVAL_MS=21600000
+CRAWLER_EMBEDDINGS_ENABLED=false
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+```
+
+- `CRAWLER_SCHEDULER_ENABLED=true` starts periodic Canada crawl after server boot.
+- `CRAWLER_INTERVAL_MS` controls interval (default 6h).
+- `CRAWLER_EMBEDDINGS_ENABLED=true` attempts embedding generation for each chunk.
+- Embeddings are optional; when disabled/unavailable, chunks are still stored.
+
+Implemented safeguards in crawler:
+- **robots.txt check** before fetching each source URL.
+- **dedupe by `content_hash`** (skips insert/upload work when unchanged snapshot already exists).
+- **best-effort scheduler** that won’t crash server on crawl errors.
+
 ## Development Admin Page Toggle
 
 You can show/hide the admin page using frontend env variable:

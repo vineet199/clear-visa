@@ -12,6 +12,7 @@ export function setAuthToken(token) {
 export const register = (payload) => api.post("/auth/register", payload).then((r) => r.data);
 export const login = (payload) => api.post("/auth/login", payload).then((r) => r.data);
 export const analyzeProfile = (payload) => api.post("/visa/analyze", payload).then((r) => r.data);
+export const calculateScore = (payload) => api.post("/visa/score", payload).then((r) => r.data);
 export const fetchChecklist = (profileId, visaCode) =>
   api.get(`/visa/checklist/${profileId}/${visaCode}`).then((r) => r.data);
 export const saveVisaOption = (payload) => api.post("/visa/save-option", payload).then((r) => r.data);

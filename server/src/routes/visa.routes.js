@@ -5,8 +5,50 @@ import { Profile } from "../models/Profile.js";
 import { QueryHistory } from "../models/QueryHistory.js";
 import { SavedVisaOption } from "../models/SavedVisaOption.js";
 import { runLLM } from "../lib/llm.js";
+import { calculateOfficialStyleScore } from "../services/pointsScoring.js";
+import { runCanadaCrawlerJob } from "../services/crawler.js";
 
 const router = Router();
+const RECOMMENDATION_CACHE_TTL_MS = Number(process.env.RECOMMENDATION_CACHE_TTL_MS || 10 * 60 * 1000);
+const recommendationCache = new Map();
+
+function stableStringify(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map((v) => stableStringify(v)).join(",")}]`;
+  }
+
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${stableStringify(value[k])}`)
+      .join(",")}}`;
+  }
+
+  return JSON.stringify(value);
+}
+
+function makeRecommendationCacheKey(profile) {
+  return stableStringify(profile || {});
+}
+
+function getCachedRecommendations(cacheKey) {
+  const entry = recommendationCache.get(cacheKey);
+  if (!entry) return null;
+
+  if (entry.expiresAt <= Date.now()) {
+    recommendationCache.delete(cacheKey);
+    return null;
+  }
+
+  return entry;
+}
+
+function putCachedRecommendations(cacheKey, value) {
+  recommendationCache.set(cacheKey, {
+    value,
+    expiresAt: Date.now() + RECOMMENDATION_CACHE_TTL_MS,
+  });
+}
 
 function safeJsonParse(text) {
   if (!text) return null;
@@ -74,6 +116,11 @@ function normalizeRecommendations(recommendations) {
 }
 
 async function generateRecommendationsFromLLM(profile) {
+  const cacheKey = makeRecommendationCacheKey(profile);
+  const cached = getCachedRecommendations(cacheKey);
+  if (cached?.value) return cached.value;
+  if (cached?.pending) return cached.pending;
+
   const fallback = {
     summary:
       "I couldn't generate recommendations right now. Please verify requirements on official immigration websites. This is not legal advice.",
@@ -83,36 +130,52 @@ async function generateRecommendationsFromLLM(profile) {
   const systemPrompt =
     "You are a migration assistant. Return STRICT JSON only (no markdown). Include only realistic visa pathways for the destination country. Every recommendation MUST include sourceCitations with official URLs. Always include uncertainty and avoid guarantees. Output schema: {\"summary\": string, \"recommendations\": [{\"code\": string, \"title\": string, \"processingMonths\": string, \"eligibilityScore\": number, \"confidence\": \"low\"|\"medium\"|\"high\", \"reasoning\": string[], \"docTemplate\": string[], \"lastVerifiedAt\": string, \"sourceCitations\": [{\"label\": string, \"url\": string, \"publisher\": string, \"retrievedAt\": string}]}]}. End summary with: This is not legal advice.";
 
-  const firstText = await runLLM({
-    system: systemPrompt,
-    user: `Generate top 3 visa recommendations for this profile: ${JSON.stringify(profile)}`,
-    fallback: JSON.stringify(fallback),
-  });
-
-  const firstParsed = safeJsonParse(firstText) || fallback;
-  let normalized = normalizeRecommendations(firstParsed?.recommendations);
-  let summary = String(firstParsed?.summary || fallback.summary);
-
-  // Retry once if model returned invalid structure or empty recommendation list.
-  if (normalized.length === 0) {
-    const retryText = await runLLM({
+  const pending = (async () => {
+    const firstText = await runLLM({
       system: systemPrompt,
-      user:
-        `Your previous answer was not usable. Return valid JSON with at least 2 recommendations and official citations. ` +
-        `Profile: ${JSON.stringify(profile)}. ` +
-        `Destination country is ${profile?.destinationCountry || "unknown"}.`,
+      user: `Generate top 3 visa recommendations for this profile: ${JSON.stringify(profile)}`,
       fallback: JSON.stringify(fallback),
     });
 
-    const retryParsed = safeJsonParse(retryText) || fallback;
-    normalized = normalizeRecommendations(retryParsed?.recommendations);
-    summary = String(retryParsed?.summary || summary);
-  }
+    const firstParsed = safeJsonParse(firstText) || fallback;
+    let normalized = normalizeRecommendations(firstParsed?.recommendations);
+    let summary = String(firstParsed?.summary || fallback.summary);
 
-  return {
-    summary: summary.includes("This is not legal advice.") ? summary : `${summary} This is not legal advice.`,
-    recommendations: normalized,
-  };
+    // Retry once if model returned invalid structure or empty recommendation list.
+    if (normalized.length === 0) {
+      const retryText = await runLLM({
+        system: systemPrompt,
+        user:
+          `Your previous answer was not usable. Return valid JSON with at least 2 recommendations and official citations. ` +
+          `Profile: ${JSON.stringify(profile)}. ` +
+          `Destination country is ${profile?.destinationCountry || "unknown"}.`,
+        fallback: JSON.stringify(fallback),
+      });
+
+      const retryParsed = safeJsonParse(retryText) || fallback;
+      normalized = normalizeRecommendations(retryParsed?.recommendations);
+      summary = String(retryParsed?.summary || summary);
+    }
+
+    return {
+      summary: summary.includes("This is not legal advice.") ? summary : `${summary} This is not legal advice.`,
+      recommendations: normalized,
+    };
+  })();
+
+  recommendationCache.set(cacheKey, {
+    pending,
+    expiresAt: Date.now() + RECOMMENDATION_CACHE_TTL_MS,
+  });
+
+  try {
+    const result = await pending;
+    putCachedRecommendations(cacheKey, result);
+    return result;
+  } catch (error) {
+    recommendationCache.delete(cacheKey);
+    throw error;
+  }
 }
 
 function generateChecklist(visaOption) {
@@ -125,23 +188,44 @@ function generateChecklist(visaOption) {
 
 router.post("/analyze", requireAuth, async (req, res) => {
   const payload = req.body;
-  const profile = await Profile.create({ userId: req.user.sub, ...payload });
-  const { summary: llmSummary, recommendations } = await generateRecommendationsFromLLM(payload);
+  const officialScorePromise = calculateOfficialStyleScore(payload);
+  const [profile, { summary: llmSummary, recommendations }] = await Promise.all([
+    Profile.create({ userId: req.user.sub, ...payload }),
+    generateRecommendationsFromLLM(payload),
+  ]);
+  const officialScore = await officialScorePromise;
 
-  await QueryHistory.create({
+  QueryHistory.create({
     userId: req.user.sub,
     profileId: profile._id,
     type: "analysis",
     prompt: JSON.stringify(payload),
     response: llmSummary,
     confidence: recommendations[0]?.confidence || "low",
+  }).catch(() => {
+    // Non-blocking write; analysis response should not fail if history logging fails.
   });
 
   res.json({
     profileId: profile._id,
+    officialScore,
     recommendations,
     summary: llmSummary,
     disclaimer: "This is not legal advice.",
+  });
+});
+
+router.post("/score", requireAuth, async (req, res) => {
+  const payload = req.body || {};
+  const officialScore = await calculateOfficialStyleScore(payload);
+  res.json({ officialScore });
+});
+
+router.post("/crawl/canada", requireAuth, async (_req, res) => {
+  const result = await runCanadaCrawlerJob();
+  res.json({
+    ok: result.failed === 0,
+    job: result,
   });
 });
 

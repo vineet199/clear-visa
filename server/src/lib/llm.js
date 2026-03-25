@@ -25,6 +25,17 @@ async function runOpenAI(system, user) {
   return response.output_text?.trim() || null;
 }
 
+async function embeddingOpenAI(text) {
+  const openaiClient = getOpenAIClient();
+  if (!openaiClient) return null;
+  const model = process.env.OPENAI_EMBEDDING_MODEL || "text-embedding-3-small";
+  const response = await openaiClient.embeddings.create({
+    model,
+    input: text,
+  });
+  return response?.data?.[0]?.embedding || null;
+}
+
 async function runGemini(system, user) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || apiKey.startsWith("replace_with_")) return null;
@@ -90,5 +101,17 @@ export async function runLLM({ system, user, fallback }) {
     return text || fallback;
   } catch {
     return fallback;
+  }
+}
+
+export async function generateEmbedding(text) {
+  try {
+    const input = String(text || "").trim();
+    if (!input) return null;
+
+    // Embedding generation is optional and currently enabled via OpenAI key.
+    return await embeddingOpenAI(input);
+  } catch {
+    return null;
   }
 }
