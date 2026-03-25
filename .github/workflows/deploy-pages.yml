@@ -26,14 +26,18 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version-file: .node-version
           cache: npm
+          cache-dependency-path: package-lock.json
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
       - name: Install dependencies
-        run: npm ci
+        env:
+          NODE_ENV: development
+          NPM_CONFIG_PRODUCTION: false
+        run: npm ci --include=dev --workspaces --include-workspace-root --no-fund --no-audit
 
       - name: Build frontend
         env:
@@ -42,7 +46,7 @@ jobs:
           VITE_ENABLE_ADMIN_PAGE: ${{ vars.VITE_ENABLE_ADMIN_PAGE }}
           VITE_ENABLE_AUTH_PAGE: ${{ vars.VITE_ENABLE_AUTH_PAGE }}
           VITE_DEV_AUTO_LOGIN: ${{ vars.VITE_DEV_AUTO_LOGIN }}
-        run: npm run build -w client
+        run: npm exec --workspace client vite build
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

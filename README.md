@@ -181,6 +181,8 @@ will:
 - build the Vite frontend,
 - publish `client/dist` to GitHub Pages.
 
+The workflow explicitly installs **workspace devDependencies** so tools like `vite` are available during CI builds.
+
 For this repository, the default Pages URL should be:
 
 ```text
@@ -202,6 +204,8 @@ VITE_PUBLIC_BASE_PATH=/clear-visa/ npm run build -w client
 ### Important limitation
 
 If `VITE_API_BASE_URL` is not configured in GitHub Actions, the deployed site will load but API calls such as sign-in, profile analysis, chat, and saved options will fail because GitHub Pages cannot run the Express backend.
+
+If GitHub Actions fails with `vite: not found`, make sure the workflow includes the latest commit from this repo and rerun the job. The workflow now installs workspace devDependencies explicitly and builds with `npm exec --workspace client vite build`.
 
 ## Deploying the Backend to Render
 
