@@ -5,8 +5,8 @@ services:
     rootDir: server
     plan: free
     autoDeploy: true
-    buildCommand: npm install
-    startCommand: npm start
+    buildCommand: npm install --workspaces=false --no-fund --no-audit
+    startCommand: node src/index.js
     healthCheckPath: /api/health
     envVars:
       - key: MONGODB_URI
