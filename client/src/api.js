@@ -1,7 +1,18 @@
 import axios from "axios";
 
+const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
+const fallbackBaseUrl = import.meta.env.DEV ? "http://localhost:4000/api" : "/api";
+
+const baseURL = (configuredBaseUrl || fallbackBaseUrl).replace(/\/$/, "");
+
+if (!import.meta.env.DEV && !configuredBaseUrl) {
+  console.warn(
+    "VITE_API_BASE_URL is not set. Production API requests will use /api, which only works if a reverse proxy is configured."
+  );
+}
+
 const api = axios.create({
-  baseURL: "http://localhost:4000/api",
+  baseURL,
 });
 
 export function setAuthToken(token) {

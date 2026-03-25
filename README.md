@@ -141,6 +141,68 @@ Confidence bands:
 4. Open frontend at `http://localhost:5173`.
 5. Backend API runs at `http://localhost:4000`.
 
+## Deploying the Frontend to GitHub Pages
+
+GitHub Pages can host the **React/Vite frontend only**. The Node/Express backend in `server/` must be deployed separately (for example on Render, Railway, Fly.io, or another VPS), then exposed to the frontend via `VITE_API_BASE_URL`.
+
+### What was added for Pages support
+
+- `HashRouter` is used so client-side routes work on GitHub Pages without server rewrites.
+- Vite now uses a Pages-friendly production base path (`/clear-visa/` by default).
+- API requests now read `VITE_API_BASE_URL`, so the deployed frontend can talk to a separately hosted backend.
+- A GitHub Actions workflow deploys `client/dist` to GitHub Pages automatically.
+
+### One-time GitHub setup
+
+1. Deploy the backend somewhere public and note its base API URL, for example:
+   ```text
+   https://your-backend-host.example.com/api
+   ```
+2. In your GitHub repository, go to:
+   **Settings → Pages**
+   and set **Source** to **GitHub Actions**.
+3. In **Settings → Secrets and variables → Actions → Variables**, add:
+   - `VITE_API_BASE_URL=https://your-backend-host.example.com/api`
+   - optional: `VITE_PUBLIC_BASE_PATH=/clear-visa/`
+
+   Use `VITE_PUBLIC_BASE_PATH=/` only if you move this app to a custom domain root or a `username.github.io` repository.
+
+### Deploy
+
+Push to your default branch (for example `main`). The workflow at:
+
+```text
+.github/workflows/deploy-pages.yml
+```
+
+will:
+
+- install dependencies,
+- build the Vite frontend,
+- publish `client/dist` to GitHub Pages.
+
+For this repository, the default Pages URL should be:
+
+```text
+https://vineet199.github.io/clear-visa/
+```
+
+### Local verification for the Pages build
+
+```bash
+npm run build -w client
+```
+
+If you want to test with a custom Pages base path locally:
+
+```bash
+VITE_PUBLIC_BASE_PATH=/clear-visa/ npm run build -w client
+```
+
+### Important limitation
+
+If `VITE_API_BASE_URL` is not configured in GitHub Actions, the deployed site will load but API calls such as sign-in, profile analysis, chat, and saved options will fail because GitHub Pages cannot run the Express backend.
+
 ## LLM Provider Switching (OpenAI / Gemini / Ollama)
 
 The backend supports multiple providers via `LLM_PROVIDER` in `server/.env`:
