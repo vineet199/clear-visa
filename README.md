@@ -203,6 +203,114 @@ VITE_PUBLIC_BASE_PATH=/clear-visa/ npm run build -w client
 
 If `VITE_API_BASE_URL` is not configured in GitHub Actions, the deployed site will load but API calls such as sign-in, profile analysis, chat, and saved options will fail because GitHub Pages cannot run the Express backend.
 
+## Deploying the Backend to Render
+
+Use Render for the `server/` app and GitHub Pages for the `client/` app.
+
+### Files added/updated for Render
+
+- `render.yaml` defines a Render web service for the Express API.
+- `server/src/index.js` now supports `ALLOWED_ORIGINS` and trusts the proxy used by Render.
+- `server/.env.example` now uses safe placeholder values instead of real credentials.
+
+### 1) Create the Render web service
+
+1. Push this repo to GitHub.
+2. Log in to Render.
+3. Click **New +** → **Blueprint**.
+4. Select this repository.
+5. Render will detect `render.yaml` and create the API service automatically.
+
+If you prefer creating the service manually instead of Blueprint:
+
+- **Runtime:** Node
+- **Root Directory:** `server`
+- **Build Command:** `npm install`
+- **Start Command:** `npm start`
+- **Health Check Path:** `/api/health`
+
+### 2) Add environment variables on Render
+
+In Render, open the created web service and add the variables from `server/.env.example`.
+
+At minimum, configure these:
+
+- `MONGODB_URI`
+- `JWT_SECRET`
+- `ALLOWED_ORIGINS`
+- `LLM_PROVIDER`
+- provider key(s) depending on the provider you use:
+  - `OPENAI_API_KEY`, or
+  - `GEMINI_API_KEY`, or
+  - `OLLAMA_BASE_URL` if using a reachable Ollama endpoint
+
+If you use Supabase-backed crawler/rule storage, also add:
+
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_SNAPSHOT_BUCKET`
+
+Recommended `ALLOWED_ORIGINS` value for your setup:
+
+```text
+http://localhost:5173,https://vineet199.github.io
+```
+
+If you later use a custom frontend domain, add that origin too.
+
+### 3) Make sure MongoDB accepts Render connections
+
+If you use MongoDB Atlas, allow network access from Render. The simplest option during setup is:
+
+```text
+0.0.0.0/0
+```
+
+Then tighten it later if needed.
+
+### 4) Get the Render backend URL
+
+After deployment, Render will give you a URL like:
+
+```text
+https://clear-visa-api.onrender.com
+```
+
+Your API base URL for the frontend becomes:
+
+```text
+https://clear-visa-api.onrender.com/api
+```
+
+### 5) Connect GitHub Pages frontend to Render backend
+
+In GitHub:
+
+**Settings → Secrets and variables → Actions → Variables**
+
+set:
+
+- `VITE_API_BASE_URL=https://clear-visa-api.onrender.com/api`
+- `VITE_PUBLIC_BASE_PATH=/clear-visa/`
+- optional safe frontend flags:
+  - `VITE_ENABLE_ADMIN_PAGE`
+  - `VITE_ENABLE_AUTH_PAGE`
+  - `VITE_DEV_AUTO_LOGIN`
+
+Then push to the branch that triggers your Pages workflow.
+
+### 6) Resulting deployment architecture
+
+- **Frontend:** `https://vineet199.github.io/clear-visa/`
+- **Backend:** `https://your-render-service.onrender.com/api`
+- **Database/services:** MongoDB Atlas, Supabase, LLM provider
+
+### Important notes about Render
+
+- Free-tier services may sleep when idle, so the first request can be slow.
+- Never put backend secrets into GitHub Pages or any `VITE_*` variable.
+- Only put public frontend build-time values in GitHub Actions variables.
+
 ## LLM Provider Switching (OpenAI / Gemini / Ollama)
 
 The backend supports multiple providers via `LLM_PROVIDER` in `server/.env`:
