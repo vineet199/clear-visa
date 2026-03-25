@@ -1,0 +1,51 @@
+services:
+  - type: web
+    name: clear-visa-api
+    runtime: node
+    rootDir: server
+    plan: free
+    autoDeploy: true
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: MONGODB_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: LLM_PROVIDER
+        value: gemini
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-1.5-flash
+      - key: OLLAMA_BASE_URL
+        sync: false
+      - key: OLLAMA_MODEL
+        value: llama3.1:8b
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_SNAPSHOT_BUCKET
+        value: ircc-raw
+      - key: CRAWLER_SCHEDULER_ENABLED
+        value: false
+      - key: CRAWLER_INTERVAL_MS
+        value: 21600000
+      - key: CRAWLER_EMBEDDINGS_ENABLED
+        value: false
+      - key: OPENAI_EMBEDDING_MODEL
+        value: text-embedding-3-small
+      - key: DEV_AUTH_BYPASS
+        value: false
+      - key: DEV_AUTH_USER_ID
+        value: 000000000000000000000001
+      - key: DEV_AUTH_EMAIL
+        value: dev@example.com
