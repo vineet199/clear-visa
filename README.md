@@ -305,6 +305,30 @@ set:
 
 Then push to the branch that triggers your Pages workflow.
 
+### 5b) Optional: periodic GitHub Actions health check for Render
+
+This repo now includes:
+
+```text
+.github/workflows/render-healthcheck.yml
+```
+
+It pings your Render API health endpoint every 10 minutes and can also be run manually from the **Actions** tab.
+
+To enable it, add this GitHub Actions variable:
+
+- `RENDER_HEALTHCHECK_URL=https://clear-visa-api.onrender.com/api/health`
+
+Path in GitHub:
+
+**Settings → Secrets and variables → Actions → Variables**
+
+Notes:
+
+- The endpoint is expected to return HTTP `200` with JSON containing `ok: true`.
+- If the URL variable is missing, the workflow will fail with a clear message.
+- This can also help you notice Render downtime earlier, in addition to keeping light periodic traffic on the service.
+
 ### 6) Resulting deployment architecture
 
 - **Frontend:** `https://vineet199.github.io/clear-visa/`

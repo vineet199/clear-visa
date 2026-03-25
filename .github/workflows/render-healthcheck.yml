@@ -1,0 +1,63 @@
+name: Render API health check
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: render-healthcheck
+  cancel-in-progress: true
+
+jobs:
+  ping-render-api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Validate configuration
+        env:
+          RENDER_HEALTHCHECK_URL: ${{ vars.RENDER_HEALTHCHECK_URL }}
+        run: |
+          if [ -z "$RENDER_HEALTHCHECK_URL" ]; then
+            echo "RENDER_HEALTHCHECK_URL GitHub Actions variable is not set."
+            echo "Example: https://clear-visa-api.onrender.com/api/health"
+            exit 1
+          fi
+
+      - name: Ping Render health endpoint
+        env:
+          RENDER_HEALTHCHECK_URL: ${{ vars.RENDER_HEALTHCHECK_URL }}
+        run: |
+          echo "Checking $RENDER_HEALTHCHECK_URL"
+
+          response_file="$(mktemp)"
+          status_code="$(curl \
+            --silent \
+            --show-error \
+            --location \
+            --max-time 30 \
+            --retry 3 \
+            --retry-all-errors \
+            --write-out '%{http_code}' \
+            --output "$response_file" \
+            "$RENDER_HEALTHCHECK_URL")"
+
+          echo "HTTP status: $status_code"
+          echo "Response body:"
+          cat "$response_file"
+
+          if [ "$status_code" != "200" ]; then
+            echo "Health check failed with HTTP $status_code"
+            exit 1
+          fi
+
+          if ! grep -q '"ok":true' "$response_file" && ! grep -q '"ok": true' "$response_file"; then
+            echo "Health endpoint did not return the expected JSON payload."
+            exit 1
+          fi
+
+          echo "Render API is healthy."

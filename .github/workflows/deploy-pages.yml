@@ -37,7 +37,7 @@ jobs:
         env:
           NODE_ENV: development
           NPM_CONFIG_PRODUCTION: false
-        run: npm ci --include=dev --workspaces --include-workspace-root --no-fund --no-audit
+        run: npm install --prefix client --include=dev --no-fund --no-audit
 
       - name: Build frontend
         env:
@@ -46,7 +46,7 @@ jobs:
           VITE_ENABLE_ADMIN_PAGE: ${{ vars.VITE_ENABLE_ADMIN_PAGE }}
           VITE_ENABLE_AUTH_PAGE: ${{ vars.VITE_ENABLE_AUTH_PAGE }}
           VITE_DEV_AUTO_LOGIN: ${{ vars.VITE_DEV_AUTO_LOGIN }}
-        run: npm exec --workspace client vite build
+        run: npm run build --prefix client
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
