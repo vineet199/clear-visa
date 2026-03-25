@@ -115,6 +115,183 @@ function normalizeRecommendations(recommendations) {
   }));
 }
 
+function confidenceFromScore(score) {
+  if (score >= 75) return "high";
+  if (score >= 45) return "medium";
+  return "low";
+}
+
+function normalizePurpose(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function normalizeDestination(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function buildRuleBasedScore(profile, weightBoost = 0) {
+  let score = 35 + weightBoost;
+
+  const yearsExperience = Number(profile?.yearsExperience || 0);
+  const budgetUsd = Number(profile?.budgetUsd || 0);
+  const englishLevel = String(profile?.englishLevel || "").toLowerCase();
+  const educationLevel = String(profile?.educationLevel || "").toLowerCase();
+
+  if (yearsExperience >= 2) score += 15;
+  if (yearsExperience >= 4) score += 10;
+  if (budgetUsd >= 12000) score += 12;
+  if (budgetUsd >= 20000) score += 8;
+  if (["b2", "c1", "c2"].includes(englishLevel)) score += 10;
+  if (["bachelor", "master", "phd"].includes(educationLevel)) score += 10;
+
+  return Math.max(20, Math.min(95, score));
+}
+
+function makeRecommendation({ code, title, processingMonths, reasons, docs, citations, score }) {
+  const eligibilityScore = Math.max(0, Math.min(100, Number(score || 0)));
+
+  return {
+    code,
+    title,
+    processingMonths,
+    eligibilityScore,
+    confidence: confidenceFromScore(eligibilityScore),
+    reasoning: reasons,
+    docTemplate: docs,
+    lastVerifiedAt: new Date().toISOString().slice(0, 10),
+    sourceCitations: citations,
+  };
+}
+
+function buildFallbackRecommendations(profile) {
+  const destination = normalizeDestination(profile?.destinationCountry);
+  const purpose = normalizePurpose(profile?.purpose);
+
+  const canadaCitations = [
+    { label: "IRCC Immigration and citizenship", url: "https://www.canada.ca/en/services/immigration-citizenship.html", publisher: "Government of Canada" },
+    { label: "IRCC Express Entry", url: "https://www.canada.ca/en/immigration-refugees-citizenship/services/immigrate-canada/express-entry.html", publisher: "Government of Canada" },
+    { label: "IRCC Work permits", url: "https://www.canada.ca/en/immigration-refugees-citizenship/services/work-canada.html", publisher: "Government of Canada" },
+  ];
+
+  const genericCitations = [
+    { label: "Official destination immigration portal", url: "https://www.canada.ca/en/services/immigration-citizenship.html", publisher: "Government source" },
+  ];
+
+  const baseScore = buildRuleBasedScore(profile);
+
+  if (destination === "canada") {
+    if (purpose === "work") {
+      return [
+        makeRecommendation({
+          code: "CA-EXPRESS-ENTRY",
+          title: "Canada Express Entry (Skilled Worker pathways)",
+          processingMonths: "6-12 months (varies by stream and draw)",
+          score: baseScore + 8,
+          reasons: [
+            "Work purpose aligns with skilled immigration pathways.",
+            "Profile indicates baseline suitability for points-based assessment.",
+            "Strong English and education can improve ranking competitiveness.",
+          ],
+          docs: [
+            "Valid passport",
+            "Educational credential assessment (ECA)",
+            "Language test results (IELTS/CELPIP)",
+            "Proof of work experience",
+            "Police clearance certificates",
+          ],
+          citations: canadaCitations,
+        }),
+        makeRecommendation({
+          code: "CA-PNP",
+          title: "Provincial Nominee Program (PNP)",
+          processingMonths: "8-18 months (varies by province)",
+          score: baseScore + 4,
+          reasons: [
+            "PNP can complement Express Entry for occupation-targeted invites.",
+            "Destination and work intent may fit province-specific labor needs.",
+          ],
+          docs: [
+            "Passport and identity documents",
+            "Work references",
+            "Province-specific forms",
+            "Language test proof",
+            "Settlement funds evidence",
+          ],
+          citations: canadaCitations,
+        }),
+        makeRecommendation({
+          code: "CA-EMPLOYER-WP",
+          title: "Employer-supported Work Permit",
+          processingMonths: "2-8 months (varies by case)",
+          score: baseScore,
+          reasons: [
+            "Work permit route may be practical if employer sponsorship is available.",
+            "Can be a bridge toward permanent residency options later.",
+          ],
+          docs: [
+            "Job offer / employment contract",
+            "LMIA or exemption evidence (if applicable)",
+            "Passport",
+            "Work history documents",
+            "Medical exam (if required)",
+          ],
+          citations: canadaCitations,
+        }),
+      ];
+    }
+
+    if (purpose === "study") {
+      return [
+        makeRecommendation({
+          code: "CA-STUDY-PERMIT",
+          title: "Canada Study Permit",
+          processingMonths: "4-12 weeks (varies by region)",
+          score: baseScore + 5,
+          reasons: [
+            "Study purpose aligns directly with permit category.",
+            "Budget appears relevant for tuition and settlement planning.",
+          ],
+          docs: [
+            "Letter of acceptance from DLI",
+            "Proof of funds",
+            "Passport",
+            "Statement of purpose",
+            "Academic transcripts",
+          ],
+          citations: canadaCitations,
+        }),
+      ];
+    }
+  }
+
+  return [
+    makeRecommendation({
+      code: "GEN-PRIMARY",
+      title: `${profile?.destinationCountry || "Destination"} primary immigration pathway review`,
+      processingMonths: "Varies",
+      score: baseScore,
+      reasons: [
+        "A precise pathway could not be determined from dynamic recommendation generation.",
+        "Use official immigration portals for current stream-specific criteria.",
+      ],
+      docs: ["Passport", "Identity proof", "Financial evidence", "Purpose-specific supporting documents"],
+      citations: genericCitations,
+    }),
+    makeRecommendation({
+      code: "GEN-WORK-AUTH",
+      title: "Work authorization route assessment",
+      processingMonths: "Varies",
+      score: Math.max(35, baseScore - 5),
+      reasons: [
+        "Employment-focused pathways often require sponsorship or labor-market alignment.",
+        "Skill, language, and experience profile should be validated against official rules.",
+      ],
+      docs: ["Work references", "Language score", "Educational proof", "Offer letter (if available)"],
+      citations: genericCitations,
+    }),
+  ];
+}
+
 async function generateRecommendationsFromLLM(profile) {
   const cacheKey = makeRecommendationCacheKey(profile);
   const cached = getCachedRecommendations(cacheKey);
@@ -157,9 +334,11 @@ async function generateRecommendationsFromLLM(profile) {
       summary = String(retryParsed?.summary || summary);
     }
 
+    const fallbackRecommendations = normalized.length > 0 ? normalized : buildFallbackRecommendations(profile);
+
     return {
       summary: summary.includes("This is not legal advice.") ? summary : `${summary} This is not legal advice.`,
-      recommendations: normalized,
+      recommendations: fallbackRecommendations,
     };
   })();
 
