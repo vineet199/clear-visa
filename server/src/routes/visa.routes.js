@@ -334,7 +334,13 @@ async function generateRecommendationsFromLLM(profile) {
       summary = String(retryParsed?.summary || summary);
     }
 
-    const fallbackRecommendations = normalized.length > 0 ? normalized : buildFallbackRecommendations(profile);
+    const usedFallback = normalized.length === 0;
+    const fallbackRecommendations = usedFallback ? buildFallbackRecommendations(profile) : normalized;
+
+    if (usedFallback) {
+      const topTitles = fallbackRecommendations.slice(0, 2).map((r) => r.title).join("; ");
+      summary = `Here are practical pathway suggestions based on your profile: ${topTitles}. Please verify exact eligibility on official government sources. This is not legal advice.`;
+    }
 
     return {
       summary: summary.includes("This is not legal advice.") ? summary : `${summary} This is not legal advice.`,
