@@ -141,6 +141,68 @@ Confidence bands:
 4. Open frontend at `http://localhost:5173`.
 5. Backend API runs at `http://localhost:4000`.
 
+## Deploying the Frontend to GitHub Pages
+
+GitHub Pages can host the **React/Vite frontend only**. The Node/Express backend in `server/` must be deployed separately (for example on Render, Railway, Fly.io, or another VPS), then exposed to the frontend via `VITE_API_BASE_URL`.
+
+### What was added for Pages support
+
+- `HashRouter` is used so client-side routes work on GitHub Pages without server rewrites.
+- Vite now uses a Pages-friendly production base path (`/clear-visa/` by default).
+- API requests now read `VITE_API_BASE_URL`, so the deployed frontend can talk to a separately hosted backend.
+- A GitHub Actions workflow deploys `client/dist` to GitHub Pages automatically.
+
+### One-time GitHub setup
+
+1. Deploy the backend somewhere public and note its base API URL, for example:
+   ```text
+   https://your-backend-host.example.com/api
+   ```
+2. In your GitHub repository, go to:
+   **Settings → Pages**
+   and set **Source** to **GitHub Actions**.
+3. In **Settings → Secrets and variables → Actions → Variables**, add:
+   - `VITE_API_BASE_URL=https://your-backend-host.example.com/api`
+   - optional: `VITE_PUBLIC_BASE_PATH=/clear-visa/`
+
+   Use `VITE_PUBLIC_BASE_PATH=/` only if you move this app to a custom domain root or a `username.github.io` repository.
+
+### Deploy
+
+Push to your default branch (for example `main`). The workflow at:
+
+```text
+.github/workflows/deploy-pages.yml
+```
+
+will:
+
+- install dependencies,
+- build the Vite frontend,
+- publish `client/dist` to GitHub Pages.
+
+For this repository, the default Pages URL should be:
+
+```text
+https://vineet199.github.io/clear-visa/
+```
+
+### Local verification for the Pages build
+
+```bash
+npm run build -w client
+```
+
+If you want to test with a custom Pages base path locally:
+
+```bash
+VITE_PUBLIC_BASE_PATH=/clear-visa/ npm run build -w client
+```
+
+### Important limitation
+
+If `VITE_API_BASE_URL` is not configured in GitHub Actions, the deployed site will load but API calls such as sign-in, profile analysis, chat, and saved options will fail because GitHub Pages cannot run the Express backend.
+
 ## LLM Provider Switching (OpenAI / Gemini / Ollama)
 
 The backend supports multiple providers via `LLM_PROVIDER` in `server/.env`:
@@ -171,6 +233,82 @@ OLLAMA_MODEL=llama3.1:8b
 ```
 
 If a provider call fails, the app returns a safe fallback response with disclaimer.
+
+## Supabase Setup for Rules + Vector Evidence (RAG-ready)
+
+You can use Supabase as a unified layer for:
+- raw crawl snapshot metadata,
+- normalized immigration rules,
+- vector evidence chunks (`pgvector`) for retrieval.
+
+### 1) Configure backend env
+
+Set in `server/.env`:
+
+```env
+SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+```
+
+### 2) Run schema SQL in Supabase SQL editor
+
+Execute:
+
+`server/src/data/supabase-schema.sql`
+
+This creates:
+- `crawl_sources`
+- `crawl_snapshots`
+- `immigration_rules`
+- `evidence_chunks` (with `embedding vector(1536)`)
+- `rule_change_log`
+- `match_evidence_chunks(...)` RPC for semantic retrieval
+
+### 3) How backend uses it today
+
+- Score service attempts to read active rules metadata from `immigration_rules` (version, verification date, source URLs).
+- If no Supabase rule metadata is found, it safely falls back to built-in scoring framework values.
+- `POST /api/visa/analyze` and `POST /api/visa/score` include this enriched score metadata.
+
+### 4) Basic Canada crawler job
+
+Configure bucket in `server/.env`:
+
+```env
+SUPABASE_SNAPSHOT_BUCKET=ircc-raw
+```
+
+Trigger the protected endpoint:
+
+- `POST /api/visa/crawl/canada`
+
+What it does:
+- fetches a small starter set of Canada IRCC pages,
+- stores raw HTML snapshot in Supabase Storage,
+- inserts crawl metadata into `crawl_sources` + `crawl_snapshots`,
+- inserts a basic normalized rule row into `immigration_rules`,
+- chunks plain text into `evidence_chunks` for retrieval.
+
+### 5) Scheduler, robots policy, dedupe and embeddings
+
+Additional env flags:
+
+```env
+CRAWLER_SCHEDULER_ENABLED=false
+CRAWLER_INTERVAL_MS=21600000
+CRAWLER_EMBEDDINGS_ENABLED=false
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+```
+
+- `CRAWLER_SCHEDULER_ENABLED=true` starts periodic Canada crawl after server boot.
+- `CRAWLER_INTERVAL_MS` controls interval (default 6h).
+- `CRAWLER_EMBEDDINGS_ENABLED=true` attempts embedding generation for each chunk.
+- Embeddings are optional; when disabled/unavailable, chunks are still stored.
+
+Implemented safeguards in crawler:
+- **robots.txt check** before fetching each source URL.
+- **dedupe by `content_hash`** (skips insert/upload work when unchanged snapshot already exists).
+- **best-effort scheduler** that won’t crash server on crawl errors.
 
 ## Development Admin Page Toggle
 

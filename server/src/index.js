@@ -6,6 +6,7 @@ import { connectDB } from "./lib/db.js";
 import authRoutes from "./routes/auth.routes.js";
 import visaRoutes from "./routes/visa.routes.js";
 import chatRoutes from "./routes/chat.routes.js";
+import { startCrawlerScheduler } from "./services/crawler.js";
 
 dotenv.config();
 
@@ -33,5 +34,6 @@ app.use("/api/chat", chatRoutes);
 connectDB().then(() => {
   app.listen(PORT, () => {
     console.log(`Server listening on http://localhost:${PORT}`);
+    startCrawlerScheduler();
   });
 });
